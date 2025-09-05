@@ -36,6 +36,10 @@ st.markdown(
     }}
     .stMetric-value, .stMetric-label {{ color: #ffffff !important; }}
     .stProgress > div > div > div > div {{ background-color: {ACCENT} !important; }}
+    .block-container {{
+        padding-top: 1rem;
+        padding-bottom: 3rem;
+    }}
     </style>
     """,
     unsafe_allow_html=True
@@ -45,6 +49,7 @@ st.markdown(
 # HELPERS
 # =========================
 def parse_date(val, fallback=None):
+    """Converte para date com dayfirst=True (dd/mm/aaaa)."""
     if pd.isna(val) or val is None or str(val).strip() == "":
         return fallback
     try:
@@ -64,21 +69,36 @@ def safe_progress_value(percentual):
 def df_to_csv_bytes(df: pd.DataFrame, include_index: bool = True) -> bytes:
     return df.to_csv(index=include_index).encode("utf-8-sig")
 
-def extract_stage_and_days(stage_text: str):
+def extract_stage_label_and_days(stage_text: str):
     """
-    Retorna (stage_limpo, dias_em_parenteses:int).
-    Ex.: "USCIS Pending Decision (23)" -> ("USCIS Pending Decision", 23)
+    Retorna (stage_sem_parenteses, dias:int) extraindo o último número dentro de parênteses.
+    Exemplos:
+      "USCIS Pending Decision (23 days)" -> ("USCIS Pending Decision", 23)
+      "Case denied (68 days)"            -> ("Case denied", 68)
+      "RFE Draft (14)"                   -> ("RFE Draft", 14)
+      "Stage (A) (7 days)"               -> ("Stage", 7)  # pega o último parêntese
     """
     if not isinstance(stage_text, str):
         return "", 0
-    # pega o último número inteiro entre parênteses
-    m = re.findall(r"\((\s*\d+\s*)\)", stage_text)
-    days = int(m[-1].strip()) if m else 0
-    # remove todo "(...)" do label
-    stage_clean = re.sub(r"\s*\([^)]*\)\s*", "", stage_text).strip()
-    return stage_clean, days
 
-# Prazos SOL por área
+    # pegue todos os trechos com parênteses e extraia o último número
+    matches = re.findall(r"\(([^()]*)\)", stage_text)  # conteúdo dentro de cada (...)
+    days_val = 0
+    if matches:
+        last = matches[-1]
+        # tente formato "68 days" ou apenas "68"
+        m_num = re.search(r"(\d+)\s*(?:days?|dias?)?", last, flags=re.IGNORECASE)
+        if m_num:
+            try:
+                days_val = int(m_num.group(1))
+            except Exception:
+                days_val = 0
+
+    # remove TODOS os parênteses do rótulo final
+    stage_clean = re.sub(r"\s*\([^)]*\)", "", stage_text).strip()
+    return stage_clean, days_val
+
+# Prazos SOL por área (se precisar em outras telas)
 SOL_PRAZO = {
     "FOIA": 30, "I-130": 30, "COS": 30, "B2-EXT": 30, "NPT": 60, "NVC": 60, "K1": 30,
     "WAIVER": 90, "EB2-NIW": 120, "EB1": 90, "E2": 90, "O1": 90, "EB4": 90,
@@ -91,7 +111,7 @@ SOL_PRAZO = {
 # SIDEBAR
 # =========================
 with st.sidebar:
-    st.image(LOGO_URL, caption="USA4ALL", use_column_width=True)
+    st.image(LOGO_URL, caption="USA4ALL", use_container_width=True)
     mode = st.radio("Preenchimento", ["A partir de arquivo", "Manual"])
 
 st.title("🗂️ Panorama de Casos — USA4ALL")
@@ -211,9 +231,9 @@ if mode == "A partir de arquivo":
     # Seletor de cliente
     if df_cases is not None and "Case Number" in df_cases.columns:
         st.subheader("🔎 Selecione um cliente")
-        options = df_cases["Case Number"].dropna().astype(str).unique().tolist()
-        if options:
-            selected_case = st.selectbox("Case Number", options)
+        opts = df_cases["Case Number"].dropna().astype(str).unique().tolist()
+        if opts:
+            selected_case = st.selectbox("Case Number", opts)
 
     # ======= PAINEL DO CASE SELECIONADO =======
     if selected_case and df_cases is not None:
@@ -222,29 +242,28 @@ if mode == "A partir de arquivo":
         area          = row.get("Practice Area","")
         case_stage    = row.get("Case Stage","")
         open_date     = parse_date(row.get("Open Date"))
-        closed_date   = parse_date(row.get("Closed Date"))
         sol_date      = parse_date(row.get("Statute of Limitations Date"))
-        stage_clean, stage_days = extract_stage_and_days(case_stage)
+
+        stage_clean, stage_days = extract_stage_label_and_days(case_stage)
 
         st.markdown(f"### 📌 {area or '—'} • **{nome or '—'}**  \n**Case Number:** {selected_case}")
-        st.caption(f"Stage atual: **{stage_clean or '—'}**  |  dias no stage (via **()**): **{stage_days}**")
+        st.caption(f"Stage atual: **{stage_clean or '—'}**  |  dias no stage (via '()'): **{stage_days}**")
 
-        # === TEMPO DO PROCESSO (NOVA REGRA)
-        # base = hoje - Open Date
+        # === TEMPO DO PROCESSO (SEMPRE ATÉ HOJE) ===
         hoje = datetime.now().date()
         if open_date:
-            base_days = ( (closed_date or hoje) - open_date ).days
+            base_days = (hoje - open_date).days
             if base_days < 0: base_days = 0
         else:
             base_days = 0
 
-        # Se USCIS Pending Decision (no nome do stage), subtrai os dias entre parenteses
+        # Regra: só SUBTRAI os dias entre () se USCIS Pending Decision
         if "USCIS PENDING DECISION" in (stage_clean or "").upper():
             tempo_processo = max(0, base_days - stage_days)
         else:
             tempo_processo = base_days
 
-        # Progresso vs SOL (opcional, informativo)
+        # Progresso vs SOL (informativo)
         if open_date and sol_date:
             tot = (sol_date - open_date).days
             dec = (hoje - open_date).days
@@ -255,7 +274,7 @@ if mode == "A partir de arquivo":
 
         c1,c2,c3,c4 = st.columns(4)
         c1.metric("Tempo do processo (dias)", f"{tempo_processo}")
-        c2.metric("Dias decorridos desde Open Date", f"{max(dec,0)}")
+        c2.metric("Dias desde Open Date", f"{max((hoje - open_date).days if open_date else 0, 0)}")
         c3.metric("Dias até SOL", f"{max(rest,0)}")
         c4.metric("Progresso do SOL", f"{perc:.2f}%")
         st.progress(safe_progress_value(perc))
@@ -270,12 +289,12 @@ if mode == "A partir de arquivo":
         else:
             st.info("Datas insuficientes para avaliar SOL.")
 
-        # --- GRÁFICO: duração por Case Stage (apenas ao selecionar cliente)
+        # --- GRÁFICO: duração por Case Stage (apenas com cliente selecionado)
         st.subheader("⏱️ Duração por Case Stage — Cliente selecionado")
         if df_stages is not None and all(c in df_stages.columns for c in ["Case Number","Case Stage","Start Date","End Date"]):
             hist = df_stages[df_stages["Case Number"].astype(str)==str(selected_case)].copy()
             if not hist.empty:
-                # calcula duração real Start→End; se End vazio, usa hoje
+                # Duração real Start→End; se End vazio, usa hoje
                 def dur(r):
                     sd = parse_date(r.get("Start Date"))
                     ed = parse_date(r.get("End Date"), fallback=hoje)
@@ -283,6 +302,7 @@ if mode == "A partir de arquivo":
                         return (ed - sd).days
                     return 0
                 hist["Dias"] = hist.apply(dur, axis=1)
+                # Ordena por início
                 hist["Start Date"] = pd.to_datetime(hist["Start Date"], errors="coerce", dayfirst=True).dt.date
                 hist["End Date"]   = pd.to_datetime(hist["End Date"], errors="coerce", dayfirst=True).dt.date
                 hist = hist.sort_values("Start Date")
@@ -306,24 +326,24 @@ if mode == "A partir de arquivo":
                 # fallback: usa o número entre parênteses do stage atual
                 if stage_days > 0:
                     fig, ax = plt.subplots(figsize=(8, 2.8))
-                    ax.barh([stage_clean], [stage_days], color=ACCENT)
+                    ax.barh([stage_clean or "(Stage atual)"], [stage_days], color=ACCENT)
                     ax.set_xlabel("Dias")
                     ax.set_title("Duração do stage atual (via '()')")
                     fig.patch.set_facecolor(BG_SOFT); ax.set_facecolor("#0B2C21")
                     st.pyplot(fig, clear_figure=True)
                 else:
-                    st.info("Sem histórico de estágios e sem valor '()' no stage atual.")
+                    st.info("Sem histórico e sem dias '()' no Case Stage atual.")
         else:
-            # sem histórico: usa o '()' do stage atual
+            # Sem histórico: usa o '()' do stage atual
             if stage_days > 0:
                 fig, ax = plt.subplots(figsize=(8, 2.8))
-                ax.barh([stage_clean], [stage_days], color=ACCENT)
+                ax.barh([stage_clean or "(Stage atual)"], [stage_days], color=ACCENT)
                 ax.set_xlabel("Dias")
                 ax.set_title("Duração do stage atual (via '()')")
                 fig.patch.set_facecolor(BG_SOFT); ax.set_facecolor("#0B2C21")
                 st.pyplot(fig, clear_figure=True)
             else:
-                st.info("Envie o Histórico de Estágios para detalhar por estágio ou inclua dias entre '()' no Case Stage atual.")
+                st.info("Envie o Histórico de Estágios para detalhar por estágio ou inclua dias entre '()' no Case Stage.")
 
 # =========================
 # OVERVIEW POR ÁREA (ATIVOS)
@@ -357,8 +377,14 @@ st.subheader("📊 Dias por Case Stage (geral) — usando número entre '()' do 
 dfc2 = st.session_state.df_cases
 if dfc2 is not None and not dfc2.empty and "Case Stage" in dfc2.columns:
     tmp = dfc2.copy()
-    tmp["Stage Clean"], tmp["Stage Days"] = zip(*tmp["Case Stage"].apply(extract_stage_and_days))
-    # considerar somente registros com Stage Clean não vazio e Stage Days > 0
+    labels, values = [], []
+    for s in tmp["Case Stage"].astype(str):
+        sc, sd = extract_stage_label_and_days(s)
+        labels.append(sc)
+        values.append(sd)
+    tmp["Stage Clean"] = labels
+    tmp["Stage Days"]  = values
+
     tmp = tmp[(tmp["Stage Clean"].astype(str).str.strip() != "") & (tmp["Stage Days"] > 0)]
     if tmp.empty:
         st.info("Nenhum valor entre '()' encontrado nos Case Stages.")
@@ -379,55 +405,52 @@ else:
 
 # =========================
 # ESTIMATIVA: TEMPO MÉDIO DE CONCLUSÃO POR ÁREA
-# Regra: total = (endref − Open Date), se stage tiver "USCIS Pending Decision (X)", subtrai X do total
-# + SOL overrun médio e % de casos ultrapassados
+# Regras:
+#  - Total do processo = (HOJE − Open Date)
+#  - Se Case Stage contiver "USCIS Pending Decision (X)", SUBTRAI X do total
+#  - SOL overrun = max(0, HOJE − SOL)
 # =========================
 st.subheader("⏳ Estimativa — Tempo médio de conclusão por Practice Area (exclui 'USCIS Pending Decision' via '()') + SOL")
 
 cases_est = st.session_state.df_cases
-if cases_est is not None and not cases_est.empty and "Open Date" in cases_est.columns and "Case Stage" in cases_est.columns and "Practice Area" in cases_est.columns:
+if cases_est is not None and not cases_est.empty and all(c in cases_est.columns for c in ["Open Date","Case Stage","Practice Area"]):
     c = cases_est.copy()
     c["Open Date"] = c["Open Date"].apply(parse_date)
-    c["Closed Date"] = c["Closed Date"].apply(parse_date)
-    c["Statute of Limitations Date"] = c["Statute of Limitations Date"].apply(parse_date)
+    c["Statute of Limitations Date"] = c["Statute of Limitations Date"].apply(parse_date) if "Statute of Limitations Date" in c.columns else None
     c["Practice Area"] = c["Practice Area"].astype(str).str.strip()
 
-    # extrai info do Case Stage
-    stage_clean_list = []
-    stage_days_list  = []
+    # extrai label e dias de "()"
+    stage_clean, stage_days = [], []
     for s in c["Case Stage"].astype(str):
-        sc, sd = extract_stage_and_days(s)
-        stage_clean_list.append(sc)
-        stage_days_list.append(sd)
-    c["Stage Clean"] = stage_clean_list
-    c["Stage Days"]  = stage_days_list
+        sc, sd = extract_stage_label_and_days(s)
+        stage_clean.append(sc)
+        stage_days.append(sd)
+    c["Stage Clean"] = stage_clean
+    c["Stage Days"]  = stage_days
 
     hoje = datetime.now().date()
     rows = []
     for _, r in c.iterrows():
         od  = r.get("Open Date")
-        cd  = r.get("Closed Date")
-        sol = r.get("Statute of Limitations Date")
         area= r.get("Practice Area") or "(sem área)"
         sc  = (r.get("Stage Clean") or "").upper()
         sd  = int(r.get("Stage Days") or 0)
+        sol = r.get("Statute of Limitations Date") if isinstance(c.get("Statute of Limitations Date"), pd.Series) else None
 
         if not od:
             continue
-        endref = cd or hoje
-        total_days = (endref - od).days
-        if total_days < 0: total_days = 0
 
-        # subtrai apenas se USCIS Pending Decision
+        total = (hoje - od).days
+        if total < 0: total = 0
+
         if "USCIS PENDING DECISION" in sc:
-            adj = max(0, total_days - sd)
+            adj = max(0, total - sd)
         else:
-            adj = total_days
+            adj = total
 
-        # SOL overrun
         over = 0
         if sol:
-            over = max(0, (endref - sol).days)
+            over = max(0, (hoje - sol).days)
 
         rows.append({"Practice Area": area, "AdjCompletionDays": adj, "SOL_OverrunDays": over})
 
