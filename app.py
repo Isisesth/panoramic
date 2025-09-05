@@ -6,17 +6,68 @@ from datetime import datetime, date, timedelta
 from docx import Document
 
 # =========================
-# CONFIG
+# CONFIGURAÇÕES GERAIS
 # =========================
-st.set_page_config(page_title="Panorama do Cliente", layout="wide")
-st.title("📄 Panorama do Cliente")
+st.set_page_config(
+    page_title="USA4ALL • Panorama",
+    layout="wide",
+    page_icon="🗂️",
+)
 
-# -------------------------
-# Utils
-# -------------------------
+# Paleta (verde escuro + verde-lima)
+PRIMARY = "#0B3D2E"   # verde escuro
+ACCENT  = "#9BE84F"   # verde-lima
+BG_SOFT = "#0F4737"
+
+# Logo (URL direto do thumb do YouTube repassado)
+LOGO_URL = "https://i.ytimg.com/vi/aWcON7jyz0I/hq720.jpg"
+
+# CSS para tema
+st.markdown(
+    f"""
+    <style>
+    .stApp {{
+        background: linear-gradient(180deg, {BG_SOFT} 0%, #07281F 100%);
+        color: #ffffff;
+    }}
+    header, .st-emotion-cache-18ni7ap, .st-emotion-cache-12fmjuu {{
+        background-color: transparent !important;
+    }}
+    section[data-testid="stSidebar"] > div {{
+        background: #0A3327;
+        color: #fff;
+        border-right: 1px solid rgba(255,255,255,0.1);
+    }}
+    .stButton>button, .stDownloadButton>button {{
+        background: {PRIMARY} !important;
+        color: #fff !important;
+        border: 1px solid {ACCENT} !important;
+        border-radius: 8px !important;
+    }}
+    .stMetric-value, .stMetric-label {{
+        color: #ffffff !important;
+    }}
+    .stProgress > div > div > div > div {{
+        background-color: {ACCENT} !important;
+    }}
+    .stSelectbox div[data-baseweb="select"] > div {{
+        background: #123F30;
+        color: #fff;
+    }}
+    .stDataFrame, .stTable {{
+        background: rgba(255,255,255,0.03);
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# =========================
+# FUNÇÕES AUXILIARES
+# =========================
 def parse_date(val, fallback=None):
-    """Converte o valor em date (aceita str/datetime/NaT). Usa dayfirst=True para dd/mm/aaaa."""
-    if pd.isna(val) or val is None or val == "":
+    """Converte para date com dayfirst=True (dd/mm/aaaa)."""
+    if pd.isna(val) or val is None or str(val).strip() == "":
         return fallback
     try:
         d = pd.to_datetime(val, errors="coerce", dayfirst=True)
@@ -27,22 +78,15 @@ def parse_date(val, fallback=None):
         return fallback
 
 def fmt_date(d):
-    """Formata date no padrão dd/mm/aaaa, tratando None."""
     return d.strftime("%d/%m/%Y") if isinstance(d, (datetime, date)) else "—"
 
 def safe_progress_value(percentual):
-    """Converte percentual (0-100+) em valor seguro para st.progress (0-1)."""
-    if percentual is None:
-        return 0.0
-    return max(0.0, min(percentual / 100.0, 1.0))
+    return max(0.0, min((percentual or 0.0)/100.0, 1.0))
 
 def df_to_csv_bytes(df: pd.DataFrame, include_index: bool = True) -> bytes:
-    """Gera bytes CSV (UTF-8 BOM) para download."""
     return df.to_csv(index=include_index).encode("utf-8-sig")
 
-# -------------------------
-# Tabelas de referência
-# -------------------------
+# Prazos SOL por Practice Area
 SOL_PRAZO = {
     "FOIA": 30, "I-130": 30, "COS": 30, "B2-EXT": 30, "NPT": 60, "NVC": 60, "K1": 30,
     "WAIVER": 90, "EB2-NIW": 120, "EB1": 90, "E2": 90, "O1": 90, "EB4": 90,
@@ -51,712 +95,416 @@ SOL_PRAZO = {
     "ASYLUM": 120, "PERM": 30, "EB3": 30
 }
 
-CASE_STAGES = [
-    # FOIA
-    "FOIA - FORMS IN PREPARATION AND WAITING FOR WELCOME CALL",
-    "FOIA - INTAKE FORM SENT",
-    "FOIA - FORMS WAITING FOR CLIENT SIGNATURES",
-    "FOIA - WAITING FOR CLIENT FINGERPRINTS",
-    "FOIA - READY TO FILE",
-    "FOIA - FILED PENDING RESPONSE",
-    "FOIA - RESULTS RECEIVED",
-    "FOIA - RESULTS REVIEWED BY LAWYER",
-    "FOIA - CONSULTATION SCHEDULED",
-    "FOIA - PREPARE TO CREATE A CASE AND CLOSE",
-    # CASE (amostra ampliada)
-    "CASE - ON BOARDING - CEM WELCOME CALL",
-    "CASE - WAITING TIME TO START",
-    "CASE - WAITING WELCOME LETTER FROM NVC",
-    "CASE - WAITING FOR CLIENT EVIDENCE",
-    "CASE - ON CREDIT HOLD - ACCOUNTING",
-    "CASE - CLIENT FIRED",
-    "CASE - CLIENT HOLD REQUEST / WAITING FOR DATE TO RE-START",
-    "CASE - FORMS IN PREPARATION OR EVIDENCE IN TRANSLATION",
-    "CASE - FORMS WAITING FOR CLIENT SIGNATURE",
-    "CASE - WAITING FOR BUSINESS PLAN",
-    "CASE - CASE READY TO DRAFT COVER LETTER",
-    "CASE - WAITING FOR PSYCHOLOGICAL EVALUATION",
-    "CASE - CIVIL DOCUMENTS SUBMITTED",
-    "CASE - WAITING FOR AFFIDAVIT",
-    "CASE - FINAL PACKAGE IN PREPARATION",
-    "CASE - WAITING FOR CEM REVIEW",
-    "CASE - WAITING FOR SUPERVISOR REVIEW",
-    "CASE - WAITING FOR ATTORNEY REVIEW",
-    "CASE - WAITING FOR SENIOR ATTORNEY REVIEW",
-    "CASE - FINAL PACKAGE ATTORNEY REVIEW",
-    "CASE - REVISIONS RECOMMENDED BY ATTORNEY",
-    "CASE - APPROVED BY ATTORNEY",
-    "CASE - WAITING CLIENT REVIEW (FINAL PACKAGE/COVER LETTER)",
-    "CASE - WAITING FOR PAYMENT OF IMMIGRATION FEE",
-    "CASE - READY TO GO",
-    "CASE - FILED PENDING RECEIPT",
-    "CASE - E-FILED WAITING FOR RECEIPT",
-    "CASE - USCIS PENDING DECISION",
-    "CASE - NVC PENDING DECISION",
-    "CASE - USCIS PENDING DECISION - SUPPLEMENTING",
-    "CASE - WAITING FOR INTERVIEW DATE",
-    "CASE - INTERVIEW SCHEDULED FILE IN PREPARATION",
-    "CASE - INTERVIEW SCHEDULED FILE READY",
-    "CASE - REQUEST INTERVIEW RESCHEDULE",
-    "CASE - NOID RECEIVED",
-    "CASE - NOID WAITING FOR CLIENT EVIDENCE",
-    "CASE - NOID DRAFTING RESPONSE",
-    "CASE - RFE RECEIVED",
-    "CASE - RFE WAITING FOR CLIENT EVIDENCE",
-    "CASE - RFE DRAFTING RESPONSE",
-    "CASE - RFE WAITING FOR ATTORNEY REVIEW",
-    "CASE - WAITING FOR ROAD MAP",
-    "CASE - WAITING FOR PORTABILITY STATUS ADJUSTMENT",
-    "CASE - AOS ADMINISTRATIVELY CLOSED",
-    "CASE - APPROVED",
-    "CASE - APPROVED - FOLLOW UP IMMIGRANT FEE PAYMENT",
-    "CASE - APPROVED - FOLLOW UP GC DELIVERY",
-    "CASE - APPROVED - WAITING FOR ADJUSTMENT OF STATUS",
-    "CASE - WAITING FOR PRIORITY DATE",
-    "CASE - WAITING FOR WAIVER APPROVAL",
-    "CASE - CLIENT CANCELLATION",
-    "CASE - DENIED",
-    "CASE - DENIED - RETURN TO INTAKE TO DISCUSS NEXT STEP WITH RENATA OR CLIENT",
-    "CASE - ADDITIONAL CASE",
-    "CASE - PHYSICAL FILE READY TO BE CLOSED",
-    "CASE - FILE READY TO BE CLOSED",
-    "CASE - CLOSED",
-    # PERM (amostra)
-    "PERM - WAITING COMPANY EVIDENCE",
-    "PERM - SEARCHING/DEFINING O*NET CODE",
-    "PERM - PW DRAFTING",
-    "PERM - PW WAITING CLIENT SIGNATURE",
-    "PERM - PW WAITING FOR ATTORNEY'S APPROVAL",
-    "PERM - PW READY TO GO",
-    "PERM - PW PENDING DETERMINATION",
-    "PERM - PW RFI RECEIVED",
-    "PERM - PW RFI PENDING DECISION",
-    "PERM - PW DETERMINATED - WAITING WAGE APPROVAL",
-    "PERM - ADVERTISING STARTED - PW DETERMINED",
-    "PERM - LABOR CERTIFICATION DRAFTING",
-    "PERM - LABOR CERTIFICATION TEAM REVIEW",
-    "PERM - LABOR CERTIFICATION WAITING CLIENT SIGNATURE",
-    "PERM - LABOR CERTIFICATION WAITING ATTORNEY'S APPROVAL",
-    "PERM - LABOR CERTIFICATION PENDING DECISION",
-    "PERM - LABOR CERTIFICATION RFI RECEIVED",
-    "PERM - LABOR CERTIFICATION AUDIT RECEIVED",
-    "PERM - LABOR CERTIFICATION AUDIT PENDING DECISION",
-    "PERM - LABOR CERTIFICATION APPROVED",
-    "PERM - LABOR CERTIFICATION DENIED",
-    "PERM - LABOR CERTIFICATION DENIED - REQUEST FOR RECONSIDERATION DRAFTING",
-    # COURT (amostra)
-    "COURT - WAITING TIME TO START",
-    "COURT - WAITING FOR CLIENT EVIDENCE",
-    "COURT - WAITING FOR USCIS RCP",
-    "COURT - WAITING FOR USCIS DECISION",
-    "COURT - WAITING FOR CEM REVIEW",
-    "COURT - WAITING FOR ATTORNEY REVIEW",
-    "COURT - FP IN PREPARATION",
-    "COURT - 42B FORM IN PREPARATION",
-    "COURT - WAITING FOR FEE PAYMENT",
-    "COURT - ADM. CLOSED",
-    "COURT - MTW PENDING DECISION",
-    "COURT - ADDITIONAL MOTION FILED - PENDING DECISION",
-    "COURT - FP FILED - PENDING DECISION",
-    "COURT - BOND HEARING PREPARATION",
-    "COURT - PREPARING CASE FOR HEARING",
-    "COURT - CASE READY FOR HEARING",
-    "COURT - MTW GRANTED",
-    "COURT - FP FILED - GRANTED",
-    "COURT - CASE GRANTED - WAITING FOR PAPER ORDER",
-    "COURT - FP FILED - DENIED",
-    "COURT - RETURN TO INTAKE",
-]
+# =========================
+# SIDEBAR • LOGO + CONTROLES
+# =========================
+with st.sidebar:
+    st.image(LOGO_URL, caption="USA4ALL", use_column_width=True)
+    st.markdown("## ⚙️ Modo de uso")
+    mode = st.radio("Preenchimento", ["A partir de arquivo", "Manual"], horizontal=False)
+    st.markdown("---")
+    st.markdown("**Observação:** para ver **duração por estágio**, envie também o arquivo **Histórico de Estágios**.")
 
-# -------------------------
-# Session State
-# -------------------------
+st.title("🗂️ Panorama de Casos — USA4ALL")
+
+# =========================
+# ESTADO DE SESSÃO
+# =========================
 if "courses" not in st.session_state:
     st.session_state.courses = [{"curso": "", "universidade": "", "conclusao": datetime.now().date()}]
-
-if "stages" not in st.session_state:
-    st.session_state.stages = []
-
-if "df_master" not in st.session_state:
-    st.session_state.df_master = None
+if "stages_manual" not in st.session_state:
+    st.session_state.stages_manual = []
+if "df_cases" not in st.session_state:
+    st.session_state.df_cases = None
+if "df_stages" not in st.session_state:
+    st.session_state.df_stages = None
 
 # =========================
-# Helpers de mapeamento de colunas
+# MAPEAMENTO DE COLUNAS (CASES + STAGES)
 # =========================
-EXPECTED_FIELDS = {
-    "Case": ["Case", "Caso", "Nome do Caso", "Client", "Cliente", "Assunto"],
-    "Case Number": ["Case Number", "Número do Caso", "CaseNo", "Case_ID", "ID"],
-    "Open Date": ["Open Date", "Data de Abertura", "Opened", "Start Date", "Início"],
-    "Closed Date": ["Closed Date", "Data de Fechamento", "Encerrado", "End Date", "Fechado em"],
-    "Statute of Limitations Date": ["Statute of Limitations Date", "SOL", "SOL Date", "Prazo SOL", "Limitation Date"],
-    "SOL Satisfied?": ["SOL Satisfied?", "SOL Satisfied", "SOL Cumprido?", "SOL OK?"],
-    "Practice Area": ["Practice Area", "Área", "Area", "Practice"],
-    "Case Stage": ["Case Stage", "Stage", "Status", "Fase", "Etapa"],
-    "Your Next Event": ["Your Next Event", "Próximo Evento", "Next Event"],
-    "Your Next Task": ["Your Next Task", "Próxima Tarefa", "Next Task"],
-    "Last Status Update": ["Last Status Update", "Última Atualização"],
-    "Fee Structure": ["Fee Structure", "Modelo de Cobrança"],
-    "Flat Fee": ["Flat Fee", "Valor Fixo"],
-    "Primary Billing Contact": ["Primary Billing Contact", "Contato de Cobrança"],
-    "Description": ["Description", "Descrição", "Notes"],
-    "Lead Attorney": ["Lead Attorney", "Advogado Responsável", "Attorney"],
+CASES_FIELDS = {
+    "Case": ["Case","Caso","Cliente","Assunto"],
+    "Case Number": ["Case Number","Número do Caso","CaseNo","Case_ID","ID"],
+    "Practice Area": ["Practice Area","Área","Area","Tipo de Visto","Visto"],
+    "Case Stage": ["Case Stage","Stage","Status","Fase","Etapa"],
+    "Open Date": ["Open Date","Data de Abertura","Start Date","Início"],
+    "Closed Date": ["Closed Date","Data de Fechamento","End Date","Fechado em"],
+    "Statute of Limitations Date": ["Statute of Limitations Date","SOL","SOL Date","Prazo SOL","Limitation Date"],
+}
+STAGES_FIELDS = {
+    "Case Number": ["Case Number","Número do Caso","CaseNo","ID"],
+    "Case Stage": ["Case Stage","Stage","Status","Fase","Etapa"],
+    "Start Date": ["Start Date","Início","Data Inicial","Start"],
+    "End Date": ["End Date","Fim","Data Final","End"],
 }
 
 def suggest_mapping(df_cols, synonyms):
     norm = {c: c.strip().lower() for c in df_cols if isinstance(c, str)}
+    # Exato
     for syn in synonyms:
-        syn_l = syn.strip().lower()
-        for col, col_l in norm.items():
-            if col_l == syn_l:
-                return col
+        s = syn.strip().lower()
+        for c, cl in norm.items():
+            if cl == s:
+                return c
+    # Contém
     for syn in synonyms:
-        syn_l = syn.strip().lower()
-        for col, col_l in norm.items():
-            if syn_l in col_l:
-                return col
+        s = syn.strip().lower()
+        for c, cl in norm.items():
+            if s in cl:
+                return c
     return None
 
-def run_column_mapping_ui(df):
-    st.markdown("### 🧭 Mapeamento de colunas (ajuste se necessário)")
+def mapping_ui(df, expected_dict, title):
+    st.markdown(f"#### 🔎 Mapeamento de colunas — {title}")
     cols = list(df.columns)
     options = ["(não usar)"] + cols
     mapping = {}
-    col1, col2 = st.columns(2)
-    left_keys = list(EXPECTED_FIELDS.keys())[:len(EXPECTED_FIELDS)//2]
-    right_keys = list(EXPECTED_FIELDS.keys())[len(EXPECTED_FIELDS)//2:]
-    with col1:
-        for field in left_keys:
-            sug = suggest_mapping(cols, EXPECTED_FIELDS[field]) or "(não usar)"
-            mapping[field] = st.selectbox(f"{field}", options, index=options.index(sug), key=f"map_{field}")
-    with col2:
-        for field in right_keys:
-            sug = suggest_mapping(cols, EXPECTED_FIELDS[field]) or "(não usar)"
-            mapping[field] = st.selectbox(f"{field}", options, index=options.index(sug), key=f"map_{field}")
+    left, right = st.columns(2)
+    keys = list(expected_dict.keys())
+    half = len(keys)//2
+    with left:
+        for k in keys[:half]:
+            sug = suggest_mapping(cols, expected_dict[k]) or "(não usar)"
+            mapping[k] = st.selectbox(k, options, index=options.index(sug), key=f"map_{title}_{k}")
+    with right:
+        for k in keys[half:]:
+            sug = suggest_mapping(cols, expected_dict[k]) or "(não usar)"
+            mapping[k] = st.selectbox(k, options, index=options.index(sug), key=f"map_{title}_{k}")
 
-    rename_dict = {v: k for k, v in mapping.items() if v != "(não usar)"}
-    df2 = df.rename(columns=rename_dict).copy()
-
+    rename = {v: k for k, v in mapping.items() if v != "(não usar)"}
+    df2 = df.rename(columns=rename).copy()
+    # Trim e datas
     for c in df2.columns:
         if isinstance(c, str):
             df2[c] = df2[c].apply(lambda x: x.strip() if isinstance(x, str) else x)
-
-    for dc in ["Open Date", "Closed Date", "Statute of Limitations Date"]:
+    # Datas conhecidas
+    for dc in ["Open Date","Closed Date","Statute of Limitations Date","Start Date","End Date"]:
         if dc in df2.columns:
             df2[dc] = pd.to_datetime(df2[dc], errors="coerce", dayfirst=True).dt.date
-
-    st.success("✔️ Mapeamento aplicado. Se algo ficar errado, ajuste os selects acima.")
+    st.success("✔️ Mapeamento aplicado.")
     return df2
 
 # =========================
-# Modo de uso
+# UPLOAD / ENTRADA DE DADOS
 # =========================
-mode = st.radio("Como deseja preencher os dados?", ["A partir de arquivo", "Manual"], horizontal=True)
-
-# =========================
-# MODO: ARQUIVO
-# =========================
-df_master = None
-case_data = {}
+df_cases = None
+df_stages = None
 selected_case = None
 
 if mode == "A partir de arquivo":
-    st.subheader("📂 Upload de Arquivo de Casos")
-    uploaded_file = st.file_uploader("Envie um arquivo XLS, XLSX ou CSV", type=["xls", "xlsx", "csv"])
+    st.subheader("📂 Upload de dados")
+    up1 = st.file_uploader("Arquivo de **Casos** (CSV/XLS/XLSX)", type=["csv","xls","xlsx"], key="up_cases")
+    up2 = st.file_uploader("Arquivo **Histórico de Estágios** (opcional) — colunas: Case Number, Case Stage, Start Date, End Date",
+                           type=["csv","xls","xlsx"], key="up_stages")
 
-    if uploaded_file:
+    if up1:
         try:
-            if uploaded_file.name.lower().endswith((".xls", ".xlsx")):
-                raw_df = pd.read_excel(uploaded_file)
+            if up1.name.lower().endswith((".xls",".xlsx")):
+                raw_cases = pd.read_excel(up1)
             else:
-                raw_df = pd.read_csv(uploaded_file)
-            st.success("✅ Arquivo carregado com sucesso.")
-            st.dataframe(raw_df, use_container_width=True)
-
-            with st.expander("🧭 Ajustar colunas (se seus nomes forem diferentes)"):
-                df_master = run_column_mapping_ui(raw_df)
-            if df_master is None:
-                df_master = raw_df.copy()
-
-            st.session_state.df_master = df_master
+                raw_cases = pd.read_csv(up1)
+            with st.expander("Ajustar colunas (Casos)"):
+                df_cases = mapping_ui(raw_cases, CASES_FIELDS, "Casos")
+            st.session_state.df_cases = df_cases
+            st.success("✅ Casos carregados.")
+            st.dataframe(df_cases.head(50), use_container_width=True)
         except Exception as e:
-            st.error(f"❌ Erro ao processar o arquivo: {e}")
+            st.error(f"Erro ao ler Casos: {e}")
 
-    if st.session_state.df_master is not None:
-        df_master = st.session_state.df_master
+    if up2:
+        try:
+            if up2.name.lower().endswith((".xls",".xlsx")):
+                raw_stages = pd.read_excel(up2)
+            else:
+                raw_stages = pd.read_csv(up2)
+            with st.expander("Ajustar colunas (Histórico de Estágios)"):
+                df_stages = mapping_ui(raw_stages, STAGES_FIELDS, "Estágios")
+            st.session_state.df_stages = df_stages
+            st.success("✅ Histórico de Estágios carregado.")
+            st.dataframe(df_stages.head(50), use_container_width=True)
+        except Exception as e:
+            st.error(f"Erro ao ler Estágios: {e}")
 
-    if df_master is not None and "Case Number" in df_master.columns:
-        st.subheader("🔎 Selecione um Caso")
-        case_numbers = df_master["Case Number"].dropna().astype(str).unique().tolist()
-        if case_numbers:
-            selected_case = st.selectbox("Número do Caso", case_numbers)
+    # Persistência na sessão
+    if st.session_state.df_cases is not None:
+        df_cases = st.session_state.df_cases
+    if st.session_state.df_stages is not None:
+        df_stages = st.session_state.df_stages
+
+    # Seletor de Case
+    if df_cases is not None and "Case Number" in df_cases.columns:
+        st.subheader("🔎 Selecione um cliente (Case)")
+        cases_list = df_cases["Case Number"].dropna().astype(str).unique().tolist()
+        if cases_list:
+            selected_case = st.selectbox("Case Number", cases_list)
         else:
-            st.warning("Nenhum 'Case Number' encontrado no arquivo.")
+            st.warning("Nenhum 'Case Number' encontrado.")
 
-    if selected_case and df_master is not None:
-        row = df_master[df_master["Case Number"].astype(str) == str(selected_case)].iloc[0]
-        case_data = row.to_dict()
+    # ======= PAINEL DO CASE SELECIONADO =======
+    if selected_case and df_cases is not None:
+        cdata = df_cases[df_cases["Case Number"].astype(str) == str(selected_case)].iloc[0].to_dict()
+        nome          = cdata.get("Case","")
+        practice_area = cdata.get("Practice Area","")
+        stage_current = cdata.get("Case Stage","")
+        open_date     = parse_date(cdata.get("Open Date"))
+        closed_date   = parse_date(cdata.get("Closed Date"))
+        sol_date      = parse_date(cdata.get("Statute of Limitations Date"))
 
-        # Dados do caso (arquivo)
-        nome           = case_data.get("Case", "")
-        case_number    = case_data.get("Case Number", "")
-        practice_area  = case_data.get("Practice Area", "")
-        case_stage     = case_data.get("Case Stage", "")
-        open_date      = parse_date(case_data.get("Open Date"))
-        closed_date    = parse_date(case_data.get("Closed Date"))
-        sol_date       = parse_date(case_data.get("Statute of Limitations Date"))
-        sol_satisfied  = case_data.get("SOL Satisfied?", "")
-        next_event     = case_data.get("Your Next Event", "")
-        next_task      = case_data.get("Your Next Task", "")
-        last_update    = case_data.get("Last Status Update", "")
-        fee_structure  = case_data.get("Fee Structure", "")
-        flat_fee       = case_data.get("Flat Fee", "")
-        billing_contact= case_data.get("Primary Billing Contact", "")
-        description    = case_data.get("Description", "")
-        lead_attorney  = case_data.get("Lead Attorney", "")
+        st.markdown(f"### 📌 {practice_area or '—'} • **{nome or '—'}**  \n**Case Number:** {selected_case}")
 
-        st.info(f"📌 Caso selecionado: **{nome or '—'}**")
-
-        # === PROGRESSO (topo) ===
-        st.subheader("📊 Progresso do Caso")
+        # Progresso vs SOL
         hoje = datetime.now().date()
+        if open_date and sol_date:
+            tot = (sol_date - open_date).days
+            dec = (hoje - open_date).days
+            rest = (sol_date - hoje).days
+            perc = round((dec/tot)*100,2) if tot>0 else (100.0 if hoje>=sol_date else 0.0)
+        else:
+            tot=dec=rest=0
+            perc = 0.0
+        col_a, col_b, col_c = st.columns(3)
+        col_a.metric("Dias decorridos", f"{max(dec,0)}")
+        col_b.metric("Dias até SOL", f"{max(rest,0)}")
+        col_c.metric("Progresso", f"{perc:.2f}%")
+        st.progress(safe_progress_value(perc))
 
         if open_date and sol_date:
-            dias_totais     = (sol_date - open_date).days
-            dias_decorridos = (hoje - open_date).days
-            dias_restantes  = (sol_date - hoje).days
-        else:
-            dias_totais = dias_decorridos = dias_restantes = 0
-
-        if open_date and sol_date and dias_totais > 0:
-            percentual = round((dias_decorridos / dias_totais) * 100, 2)
-        else:
-            percentual = 100.0 if (sol_date and hoje >= sol_date) else 0.0
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Dias decorridos", f"{max(dias_decorridos, 0)}")
-        c2.metric("Dias restantes até SOL", f"{max(dias_restantes, 0)}")
-        c3.metric("Progresso", f"{percentual:.2f}%")
-        st.progress(safe_progress_value(percentual))
-
-        if open_date and sol_date:
-            if dias_restantes < 0:
-                st.error("⚠️ O prazo de SOL já expirou!")
-            elif dias_restantes <= 5:
-                st.warning("⏱️ Atenção: menos de 5 dias restantes para o SOL.")
+            if rest < 0:
+                st.error("⚠️ SOL ultrapassado.")
+            elif rest <= 5:
+                st.warning("⏱️ Menos de 5 dias para o SOL.")
             else:
                 st.success("✔️ Dentro do prazo do SOL.")
         else:
-            st.warning("📅 Datas insuficientes para calcular o progresso (Open Date e/ou SOL ausentes).")
+            st.info("Datas insuficientes para avaliar SOL.")
 
-        # Detalhes
-        st.subheader("📑 Detalhes do Caso")
-        colA, colB = st.columns(2)
-        with colA:
-            st.write(f"**Case Number:** {case_number or '—'}")
-            st.write(f"**Open Date:** {fmt_date(open_date)}")
-            st.write(f"**Closed Date:** {fmt_date(closed_date)}")
-            st.write(f"**Statute of Limitations Date:** {fmt_date(sol_date)}")
-            st.write(f"**SOL Satisfied?:** {sol_satisfied or '—'}")
-            st.write(f"**Practice Area:** {practice_area or '—'}")
-            st.write(f"**Case Stage:** {case_stage or '—'}")
-        with colB:
-            st.write(f"**Your Next Event:** {next_event or '—'}")
-            st.write(f"**Your Next Task:** {next_task or '—'}")
-            st.write(f"**Last Status Update:** {last_update or '—'}")
-            st.write(f"**Fee Structure:** {fee_structure or '—'}")
-            st.write(f"**Flat Fee:** {flat_fee or '—'}")
-            st.write(f"**Primary Billing Contact:** {billing_contact or '—'}")
-            st.write(f"**Lead Attorney:** {lead_attorney or '—'}")
-            st.write(f"**Description:** {description or '—'}")
+        # --- GRÁFICO: duração por Case Stage (APENAS QUANDO UM CLIENTE É SELECIONADO)
+        st.subheader("⏱️ Duração por Case Stage (Case selecionado)")
+        # Monta histórico deste case (de df_stages)
+        if df_stages is not None and all(col in df_stages.columns for col in ["Case Number","Case Stage","Start Date","End Date"]):
+            h = df_stages[df_stages["Case Number"].astype(str)==str(selected_case)].copy()
+            if not h.empty:
+                # Calcula dias por linha
+                def _dur(r):
+                    sd = parse_date(r.get("Start Date"))
+                    ed = parse_date(r.get("End Date"), fallback=hoje)  # se fim vazio, usa hoje
+                    if sd and ed and ed >= sd:
+                        return (ed - sd).days
+                    return 0
+                h["Dias"] = h.apply(_dur, axis=1)
+                # Ordena por início
+                h["Start Date"] = pd.to_datetime(h["Start Date"], errors="coerce", dayfirst=True).dt.date
+                h = h.sort_values("Start Date")
 
-        # Exportação
-        if st.button("📥 Exportar para Word"):
-            doc = Document()
-            doc.add_heading("Panorama do Caso", 0)
-            doc.add_paragraph(f"Case: {nome or '—'}")
-            doc.add_paragraph(f"Case Number: {case_number or '—'}")
-            doc.add_paragraph(f"Practice Area: {practice_area or '—'}")
-            doc.add_paragraph(f"Case Stage: {case_stage or '—'}")
-            doc.add_paragraph(f"Open Date: {fmt_date(open_date)}")
-            doc.add_paragraph(f"Closed Date: {fmt_date(closed_date)}")
-            doc.add_paragraph(f"Statute of Limitations Date: {fmt_date(sol_date)}")
-            doc.add_paragraph(f"SOL Satisfied?: {sol_satisfied or '—'}")
-            doc.add_paragraph(f"Your Next Event: {next_event or '—'}")
-            doc.add_paragraph(f"Your Next Task: {next_task or '—'}")
-            doc.add_paragraph(f"Last Status Update: {last_update or '—'}")
-            doc.add_paragraph(f"Fee Structure: {fee_structure or '—'}")
-            doc.add_paragraph(f"Flat Fee: {flat_fee or '—'}")
-            doc.add_paragraph(f"Primary Billing Contact: {billing_contact or '—'}")
-            doc.add_paragraph(f"Lead Attorney: {lead_attorney or '—'}")
-            doc.add_paragraph(f"Description: {description or '—'}")
-            doc.add_paragraph(f"Dias decorridos: {max(dias_decorridos, 0)}")
-            doc.add_paragraph(f"Dias restantes até SOL: {max(dias_restantes, 0)}")
-            doc.add_paragraph(f"Progresso: {percentual:.2f}%")
-            nome_arquivo = f"panorama_{(case_number or 'caso').replace(' ', '_')}.docx"
-            doc.save(nome_arquivo)
-            st.success(f"Documento exportado com sucesso: {nome_arquivo}")
+                # Plot (barras horizontais)
+                fig_h = max(3, 0.5 * len(h))
+                fig, ax = plt.subplots(figsize=(10, fig_h))
+                y = range(len(h))
+                ax.barh(y, h["Dias"].tolist(), color=ACCENT)
+                ax.set_yticks(list(y))
+                labels = [
+                    f"{row['Case Stage']} ({fmt_date(row['Start Date'])} → {fmt_date(parse_date(row['End Date'], fallback=hoje))})"
+                    for _, row in h.iterrows()
+                ]
+                ax.set_yticklabels(labels)
+                ax.invert_yaxis()
+                ax.set_xlabel("Dias")
+                ax.set_title("Tempo em cada Stage")
+                fig.patch.set_facecolor(BG_SOFT)
+                ax.set_facecolor("#0B2C21")
+                st.pyplot(fig, clear_figure=True)
+            else:
+                st.info("Não há histórico de estágios para este case no arquivo enviado.")
+        else:
+            st.info("Envie o arquivo **Histórico de Estágios** para ver a duração por Stage.")
 
 # =========================
-# MODO: MANUAL
+# MODO MANUAL (continua disponível)
 # =========================
 if mode == "Manual":
-    # PRACTICE AREA antes do nome
-    st.subheader("⚙️ Configuração do Caso (Manual)")
-    tipo_caso = st.selectbox("🗂️ Practice Area", list(SOL_PRAZO.keys()))
-    sol_dias = SOL_PRAZO[tipo_caso]
-    st.info(f"🕒 Prazo SOL: {sol_dias} dias")
-
-    data_inicio = st.date_input("📅 Data de início do processo", value=datetime.now().date())
+    st.subheader("📝 Cadastro rápido (Manual)")
+    # Área e datas
+    tipo = st.selectbox("Practice Area", list(SOL_PRAZO.keys()))
+    data_inicio = st.date_input("Data de início", value=datetime.now().date(), format="DD/MM/YYYY")
+    sol_dias = SOL_PRAZO[tipo]
     prazo_final = data_inicio + timedelta(days=sol_dias)
     hoje = datetime.now().date()
+    tot = (prazo_final - data_inicio).days
+    dec = (hoje - data_inicio).days
+    rest = (prazo_final - hoje).days
+    perc = round((dec/tot)*100,2) if tot>0 else (100.0 if hoje>=prazo_final else 0.0)
 
-    # === ESTÁGIOS + PROGRESSO (topo) ===
-    st.subheader("📌 Estágios do Caso")
-    if st.button("➕ Adicionar Estágio"):
-        start_date = st.session_state.stages[-1]["end_date"] if st.session_state.stages else data_inicio
-        st.session_state.stages.append({
-            "stage": CASE_STAGES[0],
-            "start_date": start_date,
-            "end_date": start_date,
-            "dias": 0
-        })
+    c1,c2,c3 = st.columns(3)
+    c1.metric("Dias decorridos", f"{max(dec,0)}")
+    c2.metric("Dias até SOL", f"{max(rest,0)}")
+    c3.metric("Progresso", f"{perc:.2f}%")
+    st.progress(safe_progress_value(perc))
 
-    for idx, item in enumerate(st.session_state.stages):
-        st.session_state.stages[idx]["stage"] = st.selectbox(
-            f"Estágio {idx+1}", CASE_STAGES,
-            index=CASE_STAGES.index(item["stage"]) if item["stage"] in CASE_STAGES else 0,
-            key=f"stage_{idx}"
-        )
-        st.session_state.stages[idx]["start_date"] = st.date_input(
-            "Data inicial", value=item["start_date"], key=f"start_{idx}"
-        )
-        st.session_state.stages[idx]["end_date"] = st.date_input(
-            "Data final", value=item["end_date"], key=f"end_{idx}"
-        )
-        start = st.session_state.stages[idx]["start_date"]
-        end = st.session_state.stages[idx]["end_date"]
-        dias = (end - start).days if (isinstance(end, date) and isinstance(start, date) and end >= start) else 0
-        st.session_state.stages[idx]["dias"] = dias
-        st.text(f"⏳ {dias} dias neste estágio")
-
-    st.subheader("📊 Progresso do Caso")
-    dias_totais = (prazo_final - data_inicio).days
-    dias_decorridos = (hoje - data_inicio).days
-    dias_restantes = (prazo_final - hoje).days
-    if dias_totais > 0:
-        percentual = round((dias_decorridos / dias_totais) * 100, 2)
-    else:
-        percentual = 100.0 if hoje >= prazo_final else 0.0
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Dias decorridos", f"{max(dias_decorridos, 0)}")
-    col2.metric("Dias restantes até SOL", f"{max(dias_restantes, 0)}")
-    col3.metric("Progresso", f"{percentual:.2f}%")
-    st.progress(safe_progress_value(percentual))
-
-    if dias_restantes < 0:
-        st.error("⚠️ O prazo de SOL já expirou.")
-    elif dias_restantes <= 5:
-        st.warning("⏱️ Atenção: menos de 5 dias restantes para o SOL.")
-    else:
-        st.info("✔️ Dentro do prazo do SOL.")
-
-    # Dados do cliente
-    st.subheader("👤 Dados do Cliente")
-    nome = st.text_input("Nome completo")
-
-    # Cursos dinâmicos
-    st.subheader("🎓 Formação Acadêmica")
-    if st.button("➕ Adicionar Curso"):
-        st.session_state.courses.append({"curso": "", "universidade": "", "conclusao": datetime.now().date()})
-
-    for idx, curso in enumerate(st.session_state.courses):
-        st.markdown(f"**Curso {idx+1}**")
-        st.session_state.courses[idx]["curso"] = st.text_input("Nome do curso", value=curso["curso"], key=f"curso_{idx}")
-        st.session_state.courses[idx]["universidade"] = st.text_input("Universidade", value=curso["universidade"], key=f"universidade_{idx}")
-        st.session_state.courses[idx]["conclusao"] = st.date_input("Data de conclusão", value=curso["conclusao"], key=f"conclusao_{idx}")
-
-    # Export (manual)
-    if st.button("📥 Exportar Panorama (Manual) para Word"):
-        doc = Document()
-        doc.add_heading("Panorama do Cliente", 0)
-        doc.add_paragraph(f"Practice Area: {tipo_caso}")
-        doc.add_paragraph(f"Nome: {nome or '—'}")
-        doc.add_paragraph(f"Início do processo: {fmt_date(data_inicio)}")
-        doc.add_paragraph(f"Prazo final (SOL): {fmt_date(prazo_final)}")
-        doc.add_paragraph(f"Dias decorridos: {max(dias_decorridos, 0)}")
-        doc.add_paragraph(f"Dias restantes: {max(dias_restantes, 0)}")
-        doc.add_paragraph(f"Progresso: {percentual:.2f}%")
-
-        doc.add_heading("Estágios do Caso", level=1)
-        for s in st.session_state.stages:
-            doc.add_paragraph(
-                f"{s['stage']} | {fmt_date(s['start_date'])} → {fmt_date(s['end_date'])} | {s['dias']} dias"
-            )
-
-        doc.add_heading("Cursos", level=1)
-        for c in st.session_state.courses:
-            doc.add_paragraph(f"{c['curso']} - {c['universidade']} ({fmt_date(c['conclusao'])})")
-
-        nome_arquivo = f"panorama_{(nome or 'cliente').replace(' ', '_')}.docx"
-        doc.save(nome_arquivo)
-        st.success(f"Documento exportado: {nome_arquivo}")
+    # Estágios manuais
+    st.markdown("#### Estágios")
+    if st.button("Adicionar estágio (manual)"):
+        base = st.session_state.stages_manual[-1]["end"] if st.session_state.stages_manual else data_inicio
+        st.session_state.stages_manual.append({"stage":"(defina)", "start":base, "end":base})
+    for i, s in enumerate(st.session_state.stages_manual):
+        st.session_state.stages_manual[i]["stage"] = st.text_input(f"Stage {i+1}", value=s["stage"], key=f"m_stage_{i}")
+        st.session_state.stages_manual[i]["start"] = st.date_input("Início", value=s["start"], key=f"m_start_{i},", format="DD/MM/YYYY")
+        st.session_state.stages_manual[i]["end"] = st.date_input("Fim", value=s["end"], key=f"m_end_{i}", format="DD/MM/YYYY")
+        d = (st.session_state.stages_manual[i]["end"] - st.session_state.stages_manual[i]["start"]).days
+        st.caption(f"⏳ {max(d,0)} dias")
 
 # =========================
-# VISÃO GERAL (Arquivo): Área × Case Stage — CASOS ATIVOS
+# OVERVIEW DO DEPARTAMENTO (por tipo de visto / Practice Area)
 # =========================
-st.subheader("📈 Área × Case Stage — Casos ativos (excluídos Approved/Denied)")
+st.subheader("🏢 Overview do Departamento — por Practice Area")
+df_cases_used = st.session_state.df_cases
 
-df_used = st.session_state.df_master if st.session_state.df_master is not None else None
+if df_cases_used is not None and not df_cases_used.empty and "Practice Area" in df_cases_used.columns:
+    dfc = df_cases_used.copy()
+    dfc["Practice Area"] = dfc["Practice Area"].astype(str).str.strip()
+    # Ativos = exclude Approved/Denied no Stage
+    def is_active(stage):
+        s = str(stage).upper()
+        return not(("APPROVED" in s) or ("DENIED" in s) or ("CLOSED" in s))
+    dfc["Ativo"] = dfc["Case Stage"].apply(is_active)
 
-if mode == "A partir de arquivo" and df_used is not None and not df_used.empty:
-    # Normaliza nomes/valores
-    df_norm = df_used.copy()
-    df_norm.columns = [c.strip() if isinstance(c, str) else c for c in df_norm.columns]
+    resumo = dfc.groupby("Practice Area").agg(
+        total=("Case","count"),
+        ativos=("Ativo","sum")
+    ).sort_values("ativos", ascending=False).reset_index()
 
-    if "Practice Area" not in df_norm.columns or "Case Stage" not in df_norm.columns:
-        st.error("Colunas necessárias não encontradas: 'Practice Area' e/ou 'Case Stage'.")
-    else:
-        df_norm["Practice Area"] = df_norm["Practice Area"].astype(str).str.strip()
-        df_norm["Case Stage"]    = df_norm["Case Stage"].astype(str).str.strip()
+    st.dataframe(resumo, use_container_width=True)
 
-        # --- Filtro de Área ---
-        all_areas = sorted([a for a in df_norm["Practice Area"].dropna().unique()])
-        selected_areas = st.multiselect("Filtrar por Practice Area", options=all_areas, default=all_areas)
+    # Gráfico barras (ativos por área)
+    fig, ax = plt.subplots(figsize=(10, max(3, 0.5*len(resumo))))
+    ax.barh(resumo["Practice Area"], resumo["ativos"], color=ACCENT)
+    ax.invert_yaxis()
+    ax.set_xlabel("Casos Ativos")
+    ax.set_title("Casos Ativos por Practice Area")
+    fig.patch.set_facecolor(BG_SOFT)
+    ax.set_facecolor("#0B2C21")
+    st.pyplot(fig, clear_figure=True)
 
-        # --- Monta vis_df (apenas ATIVOS: exclui Approved/Denied) ---
-        rows = []
-        for _, r in df_norm.iterrows():
-            area  = r.get("Practice Area")
-            stage = r.get("Case Stage")
-            case  = r.get("Case")
-            if pd.isna(area) or pd.isna(stage):
-                continue
-            area = str(area).strip()
-            stage = str(stage).strip()
-            if selected_areas and area not in selected_areas:
-                continue
-            if "APPROVED" in stage.upper() or "DENIED" in stage.upper():
-                continue
-            rows.append({"Practice Area": area, "Case Stage": stage, "Case": str(case).strip() if pd.notna(case) else "(sem nome)"})
-
-        if not rows:
-            st.info("Não há casos ativos com os filtros selecionados.")
-        else:
-            vis_df = pd.DataFrame(rows)
-
-            # Pivot Área × Stage
-            pivot = vis_df.pivot_table(
-                index="Practice Area",
-                columns="Case Stage",
-                values="Case",
-                aggfunc="count",
-                fill_value=0
-            )
-
-            # -----------------------------
-            # NOVAS OPÇÕES DE GRÁFICO
-            # -----------------------------
-            viz_type = st.selectbox(
-                "Escolha o tipo de gráfico para visualizar Área × Case Stage",
-                [
-                    "Heatmap (matplotlib)",
-                    "Barras empilhadas (matplotlib)",
-                    "Barras agrupadas por Área (matplotlib)",
-                    "Treemap (Plotly)",
-                    "Sunburst (Plotly)",
-                    "Bolhas (Plotly Scatter Área × Stage)"
-                ]
-            )
-
-            # 1) Heatmap
-            if viz_type == "Heatmap (matplotlib)":
-                data = pivot.values
-                n_areas, n_stages = data.shape
-                fig_w = max(10, min(0.45 * max(n_stages, 1) + 4, 28))
-                fig_h = max(3,  min(0.50 * max(n_areas, 1) + 2, 20))
-                fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-                im = ax.imshow(data, aspect="auto")
-                ax.set_xticks(range(n_stages))
-                ax.set_xticklabels(pivot.columns, rotation=90)
-                ax.set_yticks(range(n_areas))
-                ax.set_yticklabels(pivot.index)
-                ax.set_xlabel("Case Stage")
-                ax.set_ylabel("Practice Area")
-                ax.set_title("Casos ativos — Heatmap")
-                cbar = fig.colorbar(im, ax=ax)
-                cbar.set_label("Número de casos", rotation=90)
-                # anotações
-                for i in range(n_areas):
-                    for j in range(n_stages):
-                        val = int(data[i, j])
-                        if val > 0:
-                            ax.text(j, i, str(val), ha="center", va="center", fontsize=8)
-                st.pyplot(fig, clear_figure=True)
-
-            # 2) Barras empilhadas por Área (Top N stages)
-            elif viz_type == "Barras empilhadas (matplotlib)":
-                stage_totals_all = vis_df["Case Stage"].value_counts()
-                max_n = max(1, min(20, len(stage_totals_all)))
-                top_n = st.slider("Quantos stages exibir (o restante vira 'Outros')",
-                                  min_value=1, max_value=max_n, value=min(8, max_n))
-                top_stages = stage_totals_all.head(top_n).index.tolist()
-                tmp = vis_df.copy()
-                tmp["Stage (agrupado)"] = tmp["Case Stage"].apply(lambda s: s if s in top_stages else "Outros")
-                stacked = tmp.groupby(["Practice Area", "Stage (agrupado)"])["Case"].count().unstack(fill_value=0)
-                # ordena áreas pelo total
-                stacked = stacked.loc[stacked.sum(axis=1).sort_values(ascending=False).index]
-                fig_h = max(3, 0.55 * len(stacked))
-                fig, ax = plt.subplots(figsize=(12, fig_h))
-                y = range(len(stacked))
-                left = [0] * len(stacked)
-                for stg in stacked.columns:
-                    vals = stacked[stg].tolist()
-                    ax.barh(y, vals, left=left, label=stg)
-                    left = [l + v for l, v in zip(left, vals)]
-                ax.set_yticks(list(y))
-                ax.set_yticklabels(stacked.index)
-                ax.invert_yaxis()
-                ax.set_xlabel("Número de casos")
-                ax.set_title("Casos ativos — Barras empilhadas por Área")
-                ax.legend(ncol=2, fontsize=8)
-                st.pyplot(fig, clear_figure=True)
-
-            # 3) Barras agrupadas (cada Área = cluster, colunas = Top N stages)
-            elif viz_type == "Barras agrupadas por Área (matplotlib)":
-                stage_totals_all = vis_df["Case Stage"].value_counts()
-                max_n = max(1, min(10, len(stage_totals_all)))  # limitar para legibilidade
-                top_n = st.slider("Top N stages (agrupados)", min_value=1, max_value=max_n, value=min(5, max_n))
-                top_stages = stage_totals_all.head(top_n).index.tolist()
-                tmp = vis_df[vis_df["Case Stage"].isin(top_stages)]
-                grp = tmp.groupby(["Practice Area", "Case Stage"])["Case"].count().unstack(fill_value=0)
-                areas = list(grp.index)
-                x = range(len(areas))
-                width = max(0.8 / max(1, len(grp.columns)), 0.1)
-                fig, ax = plt.subplots(figsize=(max(10, 1.2 * len(areas)), 6))
-                for i, stg in enumerate(grp.columns):
-                    ax.bar([p + i * width for p in x], grp[stg].tolist(), width=width, label=stg)
-                ax.set_xticks([p + (len(grp.columns) - 1) * width / 2 for p in x])
-                ax.set_xticklabels(areas, rotation=45, ha="right")
-                ax.set_ylabel("Casos")
-                ax.set_title("Casos ativos — Barras agrupadas (Área × Top stages)")
-                ax.legend(fontsize=8, ncol=2)
-                st.pyplot(fig, clear_figure=True)
-
-            # 4) Treemap (Plotly)
-            elif viz_type == "Treemap (Plotly)":
-                try:
-                    import plotly.express as px
-                    treedf = vis_df.groupby(["Practice Area", "Case Stage"])["Case"].count().reset_index(name="count")
-                    fig = px.treemap(treedf, path=["Practice Area", "Case Stage"], values="count")
-                    fig.update_layout(margin=dict(l=0, r=0, t=30, b=0), title="Casos ativos — Treemap Área → Stage")
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception:
-                    st.info("Instale o Plotly para ver esta visualização: `py -m pip install plotly`.")
-
-            # 5) Sunburst (Plotly)
-            elif viz_type == "Sunburst (Plotly)":
-                try:
-                    import plotly.express as px
-                    sb = vis_df.groupby(["Practice Area", "Case Stage"])["Case"].count().reset_index(name="count")
-                    fig = px.sunburst(sb, path=["Practice Area", "Case Stage"], values="count")
-                    fig.update_layout(margin=dict(l=0, r=0, t=30, b=0), title="Casos ativos — Sunburst Área → Stage")
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception:
-                    st.info("Instale o Plotly para ver esta visualização: `py -m pip install plotly`.")
-
-            # 6) Bolhas (Scatter Área × Stage)
-            else:
-                try:
-                    import plotly.express as px
-                    bubbles = vis_df.groupby(["Practice Area", "Case Stage"])["Case"].count().reset_index(name="count")
-                    fig = px.scatter(bubbles, x="Practice Area", y="Case Stage", size="count", size_max=40)
-                    fig.update_layout(margin=dict(l=0, r=0, t=30, b=0), title="Casos ativos — Bolhas (Área × Stage)")
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception:
-                    st.info("Instale o Plotly para ver esta visualização: `py -m pip install plotly`.")
-
-            # -------------------------
-            # Resumos e Downloads
-            # -------------------------
-            st.markdown("#### 📋 Casos ativos por Área (Approved/Denied excluídos)")
-            area_counts = (
-                vis_df.groupby("Practice Area")["Case"]
-                .count()
-                .sort_values(ascending=False)
-                .rename("Casos ativos")
-                .reset_index()
-            )
-            st.dataframe(area_counts, use_container_width=True)
-
-            # -------------------------
-            # Concentração por Case Stage (ativos) — Total e por Área
-            # -------------------------
-            st.markdown("#### 🧭 Concentração por Case Stage (ativos) — Total e por Área")
-
-            if vis_df.empty:
-                st.info("Sem dados ativos para calcular a concentração por Case Stage.")
-            else:
-                # Tabela: linhas = Case Stage, colunas = Practice Area (e Total)
-                stage_area_pivot = vis_df.pivot_table(
-                    index="Case Stage", columns="Practice Area", values="Case",
-                    aggfunc="count", fill_value=0
-                )
-
-                # Coluna Total (soma das áreas)
-                stage_area_pivot["Total"] = stage_area_pivot.sum(axis=1)
-
-                # Coloca 'Total' como primeira coluna
-                ordered_cols = ["Total"] + [c for c in stage_area_pivot.columns if c != "Total"]
-                stage_area_pivot = stage_area_pivot[ordered_cols]
-
-                # Ordena as linhas por Total (decrescente)
-                stage_area_pivot = stage_area_pivot.sort_values(by="Total", ascending=False)
-
-                # Filtro único por Área (opcional)
-                areas_cols = [c for c in stage_area_pivot.columns if c != "Total"]
-                sel_area = st.selectbox(
-                    "Filtrar por Área (opcional)",
-                    options=["(Todas)"] + areas_cols
-                )
-
-                if sel_area != "(Todas)":
-                    tabela_exibir = stage_area_pivot[["Total", sel_area]].copy()
-                    tabela_exibir = tabela_exibir.rename(columns={sel_area: f"{sel_area}"})
-                else:
-                    tabela_exibir = stage_area_pivot.copy()
-
-                # Mostra a tabela (uma linha por Case Stage; colunas = Total e Áreas)
-                st.dataframe(tabela_exibir, use_container_width=True)
-
-                # Exemplo: USCIS PENDING DECISION | Total=10 | EB1=4 | EB2=3 | ...
-
-                # Download CSV dessa concentração
-                st.download_button(
-                    "⬇️ Baixar concentração por Case Stage (CSV)",
-                    data=df_to_csv_bytes(tabela_exibir.reset_index(), include_index=False),
-                    file_name="concentracao_case_stage_ativos.csv",
-                    mime="text/csv"
-                )
-
-            # -------------------------
-            # Downloads CSV (pivot e resumo por área)
-            # -------------------------
-            st.markdown("### ⬇️ Downloads")
-            c1, c2 = st.columns(2)
-            with c1:
-                st.download_button(
-                    "Baixar pivot Área × Stage (CSV)",
-                    data=df_to_csv_bytes(pivot, include_index=True),
-                    file_name="pivot_area_x_stage_ativos.csv",
-                    mime="text/csv"
-                )
-            with c2:
-                st.download_button(
-                    "Baixar resumo por Área (CSV)",
-                    data=df_to_csv_bytes(area_counts, include_index=False),
-                    file_name="resumo_por_area_ativos.csv",
-                    mime="text/csv"
-                )
 else:
-    st.caption("Carregue um arquivo em 'A partir de arquivo' para ver a visão geral Área × Case Stage.")
+    st.caption("Carregue o arquivo de **Casos** para ver o overview por área.")
+
+# =========================
+# DIAS MÉDIOS POR CASE STAGE (GERAL, independente da área)
+# =========================
+st.subheader("📊 Dias médios por Case Stage (geral)")
+df_stages_used = st.session_state.df_stages
+
+if df_stages_used is not None and not df_stages_used.empty and all(c in df_stages_used.columns for c in ["Case Stage","Start Date","End Date"]):
+    dfg = df_stages_used.copy()
+
+    # Duração por linha
+    def dur(r):
+        sd = parse_date(r.get("Start Date"))
+        ed = parse_date(r.get("End Date"), fallback=datetime.now().date())
+        if sd and ed and ed >= sd:
+            return (ed - sd).days
+        return 0
+    dfg["Dias"] = dfg.apply(dur, axis=1)
+
+    media_por_stage = dfg.groupby("Case Stage")["Dias"].mean().round(1).sort_values(ascending=False)
+    media_df = media_por_stage.reset_index().rename(columns={"Dias":"Dias médios"})
+    st.dataframe(media_df, use_container_width=True)
+
+    # Gráfico
+    fig, ax = plt.subplots(figsize=(10, max(3, 0.45*len(media_df))))
+    ax.barh(media_df["Case Stage"], media_df["Dias médios"], color=ACCENT)
+    ax.invert_yaxis()
+    ax.set_xlabel("Dias médios")
+    ax.set_title("Dias médios por Stage (geral)")
+    fig.patch.set_facecolor(BG_SOFT); ax.set_facecolor("#0B2C21")
+    st.pyplot(fig, clear_figure=True)
+else:
+    st.caption("Envie o **Histórico de Estágios** para calcular as médias por stage.")
+
+# =========================
+# ESTIMATIVA: TEMPO MÉDIO DE CONCLUSÃO POR ÁREA
+# (exclui períodos 'USCIS Pending Decision')
+# e MÉDIA DE DIAS ULTRAPASSADOS DO SOL
+# =========================
+st.subheader("⏳ Estimativa — Tempo médio de conclusão por Área (excluindo 'USCIS Pending Decision') + SOL")
+
+if (df_cases_used is not None and "Open Date" in df_cases_used.columns) and (df_stages_used is not None):
+    cases = df_cases_used.copy()
+    stages = df_stages_used.copy()
+    # Normalizações
+    for c in ["Open Date","Closed Date","Statute of Limitations Date"]:
+        if c in cases.columns:
+            cases[c] = cases[c].apply(parse_date)
+    for c in ["Start Date","End Date"]:
+        if c in stages.columns:
+            stages[c] = stages[c].apply(parse_date)
+    cases["Practice Area"] = cases["Practice Area"].astype(str).str.strip()
+    cases["Case Stage"] = cases["Case Stage"].astype(str).str.strip()
+    stages["Case Stage"] = stages["Case Stage"].astype(str).str.strip()
+    stages["Case Number"] = stages["Case Number"].astype(str)
+
+    hoje = datetime.now().date()
+
+    # Função para somar dias em 'USCIS Pending Decision' por case
+    def uscis_pending_days(case_no):
+        sub = stages[stages["Case Number"].astype(str)==str(case_no)]
+        if sub.empty: return 0
+        mask = sub["Case Stage"].str.upper().str.contains("USCIS PENDING DECISION")
+        sub = sub[mask].copy()
+        if sub.empty: return 0
+        sub["sd"] = sub["Start Date"].apply(lambda x: x or hoje)
+        sub["ed"] = sub["End Date"].apply(lambda x: x or hoje)
+        sub["d"] = (sub["ed"] - sub["sd"]).apply(lambda x: x.days if pd.notna(x) and x.days>=0 else 0)
+        return int(sub["d"].sum())
+
+    rows = []
+    for _, r in cases.iterrows():
+        case_no = r.get("Case Number")
+        area    = r.get("Practice Area") or "(sem área)"
+        od      = r.get("Open Date")
+        cd      = r.get("Closed Date")
+        sol     = r.get("Statute of Limitations Date")
+        endref  = cd or hoje
+        if not od:
+            continue
+        total_days = (endref - od).days if endref >= od else 0
+        upd_days = uscis_pending_days(case_no)
+        adj_days = max(0, total_days - upd_days)
+
+        # SOL overrun (quanto passou do SOL até endref)
+        sol_over = 0
+        if sol:
+            sol_over = max(0, (endref - sol).days)
+
+        rows.append({"Practice Area": area, "Case Number": case_no, "AdjCompletionDays": adj_days, "SOL_OverrunDays": sol_over})
+
+    if not rows:
+        st.info("Sem dados suficientes para estimar tempos médios (verifique colunas e histórico de estágios).")
+    else:
+        est = pd.DataFrame(rows)
+        resumo = est.groupby("Practice Area").agg(
+            casos=("Case Number","count"),
+            media_tempo_conclusao=("AdjCompletionDays","mean"),
+            media_sol_ultrapasso=("SOL_OverrunDays","mean"),
+            pct_ultrapassados=("SOL_OverrunDays", lambda s: 100.0* (s.gt(0).sum()/max(len(s),1)))
+        ).round(1).sort_values("media_tempo_conclusao", ascending=False).reset_index()
+
+        st.dataframe(resumo, use_container_width=True)
+
+        # Gráfico: média de conclusão (ajustada) por área
+        fig, ax = plt.subplots(figsize=(10, max(3, 0.5*len(resumo))))
+        ax.barh(resumo["Practice Area"], resumo["media_tempo_conclusao"], color=ACCENT)
+        ax.invert_yaxis()
+        ax.set_xlabel("Dias (média ajustada)")
+        ax.set_title("Tempo médio de conclusão (excl. USCIS Pending Decision) por Área")
+        fig.patch.set_facecolor(BG_SOFT); ax.set_facecolor("#0B2C21")
+        st.pyplot(fig, clear_figure=True)
+
+        # Downloads
+        st.download_button(
+            "⬇️ Baixar estimativas (CSV)",
+            data=df_to_csv_bytes(resumo, include_index=False),
+            file_name="estimativas_por_area.csv",
+            mime="text/csv"
+        )
+else:
+    st.caption("Para estimar tempos médios e SOL: carregue **Casos** (com Open/Closed/SOL) e **Histórico de Estágios**.")
